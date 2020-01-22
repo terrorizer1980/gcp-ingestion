@@ -10,12 +10,7 @@ import com.mozilla.telemetry.transforms.PubsubConstraints;
 import com.mozilla.telemetry.util.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -79,6 +74,8 @@ public class ParseUri extends MapElementsWithErrors.ToPubsubMessageFrom<PubsubMe
   @Override
   protected PubsubMessage processElement(PubsubMessage message)
       throws InvalidUriException, IOException {
+    System.out.println("messageID 1: " + message.getMessageId());
+
     message = PubsubConstraints.ensureNonNull(message);
     // Copy attributes
     final Map<String, String> attributes = new HashMap<>(message.getAttributeMap());
@@ -103,18 +100,23 @@ public class ParseUri extends MapElementsWithErrors.ToPubsubMessageFrom<PubsubMe
     } else if (uri.startsWith(StubUri.PREFIX)) {
       payload = StubUri.parse(uri, attributes);
 
-      if (attributes.get("messageId") != null) {
+      System.out.println("message " + message.getAttributeMap());
+      System.out.println("message " + Arrays.toString(message.getPayload()));
+
+      System.out.println("messageID: " + message.getMessageId());
+      if (message.getMessageId() != null) {
         // convert PubSub message ID to document ID
         UUID documentId = UUID
-            .nameUUIDFromBytes(attributes.get("messageId").getBytes(StandardCharsets.UTF_8));
+            .nameUUIDFromBytes(message.getMessageId().getBytes(StandardCharsets.UTF_8));
         attributes.put(Attribute.DOCUMENT_ID, documentId.toString().toLowerCase());
       }
+
+      System.out.println("attributes: " + attributes);
+
     } else {
       throw new InvalidUriException("Unknown URI prefix");
     }
-
-    attributes.remove("messageId");
-    return new PubsubMessage(payload, attributes);
+    return new PubsubMessage(payload, attributes, message.getMessageId());
   }
 
   /**
