@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nullable;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
 
 /**
@@ -171,7 +170,6 @@ public class Json extends com.mozilla.telemetry.ingestion.core.util.Json {
    */
   public static PubsubMessage readPubsubMessage(String data) throws IOException {
     PubsubMessage output = MAPPER.readValue(data, PubsubMessage.class);
-
     if (output == null) {
       throw new IOException("not a valid PubsubMessage: null");
     } else if (output.getPayload() == null) {
@@ -206,12 +204,17 @@ public class Json extends com.mozilla.telemetry.ingestion.core.util.Json {
    * {@code getAttributeMap} method returns the value for the {@code attributes} parameter.
    * Additionally jackson doesn't like that there are no setter methods on {@link PubsubMessage}.
    *
+   * <p>Beam 2.16 added the {@code messageId} field, which is not relevant for our purposes;
+   * we mark that field with {@link JsonIgnore} so that it is not serialized and we maintain
+   * compatibility with existing messages that our pipeline has persisted without {@code messageId}.
+   * </p>
+   *
    * <p>The default jackson output format for PubsubMessage, which we want to read, looks like:
    * <pre>
    * {
    *   "payload": "${base64 encoded byte array}",
    *   "attributeMap": {"${key}": "${value}"...},
-   *   "messageId": "${id}"
+   *   "messageId": null
    * }
    * </pre>
    */
@@ -220,11 +223,12 @@ public class Json extends com.mozilla.telemetry.ingestion.core.util.Json {
 
     @JsonCreator
     public PubsubMessageMixin(@JsonProperty("payload") byte[] payload,
-        @JsonProperty("attributeMap") Map<String, String> attributes,
-        @JsonProperty("messageId") String messageId) {
+        @JsonProperty("attributeMap") Map<String, String> attributes) {
     }
 
     @JsonIgnore
-    abstract String getMessageId();
+    public String getMessageId() {
+      return null;
+    }
   }
 }
