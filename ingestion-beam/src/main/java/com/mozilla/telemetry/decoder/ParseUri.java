@@ -103,20 +103,17 @@ public class ParseUri extends MapElementsWithErrors.ToPubsubMessageFrom<PubsubMe
     } else if (uri.startsWith(StubUri.PREFIX)) {
       payload = StubUri.parse(uri, attributes);
 
-      if (attributes.get(Attribute.MESSAGE_ID) != null) {
-        // convert PubSub message ID to document ID which will be a V3 UUID using a null namespace
-        // See https://stackoverflow.com/a/55296637
-        UUID documentId = UUID.nameUUIDFromBytes(
-            attributes.get(Attribute.MESSAGE_ID).getBytes(StandardCharsets.UTF_8));
+      if (attributes.get("messageId") != null) {
+        // convert PubSub message ID to document ID
+        UUID documentId = UUID
+            .nameUUIDFromBytes(attributes.get("messageId").getBytes(StandardCharsets.UTF_8));
         attributes.put(Attribute.DOCUMENT_ID, documentId.toString().toLowerCase());
       }
     } else {
       throw new InvalidUriException("Unknown URI prefix");
     }
 
-    // message ID can be removed since it's only used for generating document ID but not used any
-    // further
-    attributes.remove(Attribute.MESSAGE_ID);
+    attributes.remove("messageId");
     return new PubsubMessage(payload, attributes);
   }
 
