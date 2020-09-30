@@ -52,7 +52,7 @@
             <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
-                <version>10.1.0</version>
+                <version>11.1.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -68,6 +68,12 @@
                 <version>${log4j.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- temporary libraries-bom overrides to find cause of CI failures. -->
+            <dependency>
+                <groupId>com.google.cloud</groupId>
+                <artifactId>google-cloud-bigquery</artifactId>
+                <version>1.119.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
