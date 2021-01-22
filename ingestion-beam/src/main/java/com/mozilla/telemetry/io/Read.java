@@ -1,6 +1,7 @@
 package com.mozilla.telemetry.io;
 
 import com.google.api.services.bigquery.model.TableSchema;
+import com.google.cloud.pubsublite.SubscriptionPath;
 import com.mozilla.telemetry.ingestion.core.Constant.Attribute;
 import com.mozilla.telemetry.ingestion.core.Constant.FieldName;
 import com.mozilla.telemetry.options.BigQueryReadMethod;
@@ -11,6 +12,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
@@ -18,6 +20,8 @@ import org.apache.beam.sdk.io.gcp.bigquery.SchemaAndRecord;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessageWithAttributesCoder;
+import org.apache.beam.sdk.io.gcp.pubsublite.PubsubLiteIO;
+import org.apache.beam.sdk.io.gcp.pubsublite.SubscriberOptions;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.PTransform;
@@ -48,6 +52,37 @@ public abstract class Read extends PTransform<PBegin, PCollection<PubsubMessage>
             Map<String, String> attributesWithMessageId = new HashMap<>(message.getAttributeMap());
             attributesWithMessageId.put(Attribute.MESSAGE_ID, message.getMessageId());
             return new PubsubMessage(message.getPayload(), attributesWithMessageId);
+          }));
+    }
+  }
+
+  /** Implementation of reading from Pub/Sub Lite. */
+  public static class PubsubLiteInput extends Read {
+
+    private final SubscriptionPath path;
+
+    /** Constructor. */
+    public PubsubLiteInput(ValueProvider<String> subscription) {
+      assert subscription
+          .isAccessible() : "PubsubLiteIO is not compatible with Dataflow classic templates.";
+      path = SubscriptionPath.parse(subscription.get());
+    }
+
+    @Override
+    public PCollection<PubsubMessage> expand(PBegin input) {
+      return input //
+          .apply(
+              PubsubLiteIO.read(SubscriberOptions.newBuilder().setSubscriptionPath(path).build()))
+          .apply(MapElements.into(TypeDescriptor.of(PubsubMessage.class)).via(message -> {
+            Map<String, String> attributesWithMessageId = message.getMessage().getAttributesMap()
+                .entrySet().stream().collect(Collectors.toMap(e -> e.getKey(),
+                    e -> e.getValue().getValues(0).toStringUtf8()));
+            if (message.hasCursor()) {
+              attributesWithMessageId.put(Attribute.MESSAGE_ID,
+                  Long.toString(message.getCursor().getOffset()));
+            }
+            return new PubsubMessage(message.getMessage().getData().toByteArray(),
+                attributesWithMessageId);
           }));
     }
   }

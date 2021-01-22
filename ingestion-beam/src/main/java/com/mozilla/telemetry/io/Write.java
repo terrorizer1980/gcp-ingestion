@@ -3,6 +3,10 @@ package com.mozilla.telemetry.io;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.bigquery.model.ErrorProto;
 import com.google.api.services.bigquery.model.TableRow;
+import com.google.cloud.pubsublite.TopicPath;
+import com.google.cloud.pubsublite.proto.AttributeValues;
+import com.google.cloud.pubsublite.proto.PubSubMessage;
+import com.google.protobuf.ByteString;
 import com.mozilla.telemetry.avro.BinaryRecordFormatter;
 import com.mozilla.telemetry.avro.GenericRecordBinaryEncoder;
 import com.mozilla.telemetry.avro.PubsubMessageRecordFormatter;
@@ -30,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.beam.sdk.Pipeline;
@@ -47,6 +52,8 @@ import org.apache.beam.sdk.io.gcp.bigquery.WriteResult;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessage;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubMessageWithAttributesCoder;
+import org.apache.beam.sdk.io.gcp.pubsublite.PublisherOptions;
+import org.apache.beam.sdk.io.gcp.pubsublite.PubsubLiteIO;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
 import org.apache.beam.sdk.transforms.Contextful;
@@ -327,6 +334,46 @@ public abstract class Write
           .apply(CompressPayload.of(compression).withMaxCompressedBytes(maxCompressedBytes)) //
           .apply(PubsubConstraints.truncateAttributes()) //
           .apply(PubsubIO.writeMessages().to(topic));
+      return WithFailures.Result.of(done, EmptyErrors.in(input.getPipeline()));
+    }
+  }
+
+  /** Implementation of writing to a Pub/Sub topic. */
+  public static class PubsubLiteOutput extends Write {
+
+    private final TopicPath path;
+    private final ValueProvider<Compression> compression;
+    private final int maxCompressedBytes;
+
+    /** Constructor. */
+    public PubsubLiteOutput(ValueProvider<String> topic, ValueProvider<Compression> compression,
+        int maxCompressedBytes) {
+      assert topic
+          .isAccessible() : "PubsubLiteIO is not compatible with Dataflow classic templates.";
+      this.path = TopicPath.parse(topic.get());
+      this.compression = compression;
+      this.maxCompressedBytes = maxCompressedBytes;
+    }
+
+    /** Constructor. */
+    public PubsubLiteOutput(ValueProvider<String> topic, ValueProvider<Compression> compression) {
+      this(topic, compression, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public WithFailures.Result<PDone, PubsubMessage> expand(PCollection<PubsubMessage> input) {
+      PDone done = input //
+          .apply(CompressPayload.of(compression).withMaxCompressedBytes(maxCompressedBytes)) //
+          .apply(PubsubConstraints.truncateAttributes()) //
+          .apply(MapElements.into(TypeDescriptor.of(PubSubMessage.class)).via(message -> {
+            Map<String, AttributeValues> attributes = message.getAttributeMap().entrySet().stream()
+                .collect(Collectors.toMap(e -> e.getKey(), e -> AttributeValues.newBuilder()
+                    .addValues(ByteString.copyFromUtf8(e.getValue())).build()));
+            // TODO: fail messages that are too big for Pub/Sub Lite
+            return PubSubMessage.newBuilder().setData(ByteString.copyFrom(message.getPayload()))
+                .putAllAttributes(attributes).build();
+          })) //
+          .apply(PubsubLiteIO.write(PublisherOptions.newBuilder().setTopicPath(path).build()));
       return WithFailures.Result.of(done, EmptyErrors.in(input.getPipeline()));
     }
   }
